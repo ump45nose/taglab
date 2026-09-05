@@ -22,6 +22,7 @@ never permanently deleted: `Artist/Album/song.flac` becomes
 ```bash
 cp .env.example .env
 # Set HOST_MEDIA_PATH and the NAVIDROME_* values.
+# Set PUID/PGID to an account that can write HOST_MEDIA_PATH.
 # Leave DRY_RUN=true for the first run and inspect docker compose logs.
 docker compose up -d --build
 ```

@@ -3,6 +3,14 @@ services:
     build: .
     container_name: taglab-delete-worker
     restart: unless-stopped
+    user: "${PUID:-0}:${PGID:-0}"
     env_file: ${ENV_FILE:-.env}
     volumes:
       - ${HOST_MEDIA_PATH}:/media:rw
+    networks:
+      - music_net
+
+networks:
+  music_net:
+    external: true
+    name: ${DOCKER_NETWORK:-music_net}
