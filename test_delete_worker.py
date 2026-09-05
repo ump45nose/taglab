@@ -1,7 +1,7 @@
 import os
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest.mock import patch
 
 from delete_worker import Config, run_once, safe_source
@@ -20,7 +20,7 @@ class FakeNavidrome:
 
 class WorkerSmokeTest(unittest.TestCase):
     def config(self, root: Path, *, dry_run: bool = False) -> Config:
-        return Config(root, "http://navidrome", "u", "p", True, 1, True, dry_run, 0)
+        return Config(root, PurePosixPath("/music"), "http://navidrome", "u", "p", True, 1, True, dry_run, 0)
 
     def test_moves_rating_and_liked_but_not_unrated(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -42,6 +42,14 @@ class WorkerSmokeTest(unittest.TestCase):
             root = Path(tmp)
             self.assertIsNone(safe_source(root, "../outside.flac"))
             self.assertIsNone(safe_source(root, "/etc/passwd"))
+
+    def test_maps_navidrome_absolute_music_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            track = root / "Artist/Album/song.flac"
+            track.parent.mkdir(parents=True)
+            track.write_bytes(b"audio")
+            self.assertEqual(safe_source(root, "/music/Artist/Album/song.flac"), track)
 
     def test_environment_defaults_are_safe(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {

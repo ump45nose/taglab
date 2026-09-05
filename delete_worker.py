@@ -44,6 +44,7 @@ def env_int(name: str, default: int, minimum: int, maximum: int | None = None) -
 @dataclass(frozen=True)
 class Config:
     media_path: Path
+    navidrome_music_path: PurePosixPath
     navidrome_url: str
     navidrome_user: str
     navidrome_password: str
@@ -57,6 +58,7 @@ class Config:
     def from_env(cls) -> "Config":
         config = cls(
             media_path=Path(os.getenv("MEDIA_PATH", "/media")),
+            navidrome_music_path=PurePosixPath(os.getenv("NAVIDROME_MUSIC_PATH", "/music")),
             navidrome_url=os.getenv("NAVIDROME_URL", "").rstrip("/"),
             navidrome_user=os.getenv("NAVIDROME_USER", ""),
             navidrome_password=os.getenv("NAVIDROME_PASSWORD", ""),
@@ -137,9 +139,18 @@ def select_candidates(config: Config, client: Navidrome) -> dict[str, set[str]]:
     return candidates
 
 
-def safe_source(media_root: Path, reported_path: str) -> Path | None:
+def safe_source(
+    media_root: Path,
+    reported_path: str,
+    navidrome_music_path: PurePosixPath = PurePosixPath("/music"),
+) -> Path | None:
     relative = PurePosixPath(reported_path)
-    if relative.is_absolute() or ".." in relative.parts or ".trash" in relative.parts:
+    if relative.is_absolute():
+        try:
+            relative = relative.relative_to(navidrome_music_path)
+        except ValueError:
+            return None
+    if ".." in relative.parts or ".trash" in relative.parts:
         return None
     root = media_root.resolve()
     source = (root / Path(*relative.parts)).resolve()
@@ -168,7 +179,7 @@ def run_once(config: Config, client: Navidrome | None = None) -> tuple[int, int]
     skipped = 0
 
     for reported_path, reasons in sorted(candidates.items()):
-        source = safe_source(config.media_path, reported_path)
+        source = safe_source(config.media_path, reported_path, config.navidrome_music_path)
         reason = ",".join(sorted(reasons))
         if source is None:
             skipped += 1

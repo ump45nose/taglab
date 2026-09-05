@@ -36,8 +36,9 @@ docker compose up -d --force-recreate
 
 `POLL_INTERVAL` is seconds between runs; set it to `0` for a single run. The
 Navidrome user must be able to see the complete target library. Its reported
-song paths must be relative to `MEDIA_PATH` and refer to the same mounted
-library.
+song paths must refer to the same mounted library. Enable **Report Real Path**
+for the `taglab-delete-worker` player in Navidrome; `NAVIDROME_MUSIC_PATH`
+(default `/music`) is stripped before resolving the path under `MEDIA_PATH`.
 
 ## Run without Docker
 
