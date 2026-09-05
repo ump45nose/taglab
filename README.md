@@ -1,213 +1,65 @@
-# TagLab
+# TagLab Delete Worker
 
-A web-based FLAC metadata editor built for headless media servers. Tag albums,
-manage cover art, calculate ReplayGain, pull metadata from MusicBrainz, and
-trigger a Navidrome rescan. Runs entirely in the browser.
+A deliberately small fork of [TagLab](https://github.com/cdeschenes/taglab).
+It keeps only one job: read song state from Navidrome and safely move matching
+music files to `.trash/` inside the mounted media library.
 
-Inspired by [metadata-remote](https://github.com/wow-signal-dev/metadata-remote).
+There is no web UI, database, metadata editor, ffmpeg, or application
+framework. Runtime dependencies: Python's standard library only.
 
----
+## Rules
 
-## Features
+- `DELETE_BY_RATING=true`: move songs with an **explicit** Navidrome rating
+  from 1 through `MAX_RATING` (default `1`). Unrated songs do not match.
+- `DELETE_LIKED=true`: move songs favorited/starred in Navidrome.
 
-- Browse your music library by artist and album
-- Edit shared album tags (album artist, year, genre, label, country,
-  MusicBrainz IDs) and per-track tags in one view
-- Bulk-apply shared fields across all tracks in an album
-- Upload, replace, or delete cover art, with a dedicated cleanup view for
-  albums missing artwork; sort by size to find low-resolution covers
-- Artist info page with bio, stats, similar artists, and artist photo via
-  Last.fm; artist photo auto-saves to disk on first visit
-- Multi-library support: configure multiple music libraries and switch between
-  them at runtime
-- ReplayGain calculation via ffmpeg EBU R128 (album and track gain, preview
-  before writing)
-- MusicBrainz lookup to auto-fill metadata from a release search
-- Synchronized lyrics support via LRCLib
-- File organizer: rename and move files into a consistent folder structure
-  based on tags, with server-side saved patterns
-- Move to Trash: safely delete albums or individual tracks (moved to
-  `.trash/` inside your media root, not permanently removed); dedicated
-  Trash page for bulk recovery by track, album, or artist
-- Navidrome integration: sync play counts, favorites (♥), and star ratings
-  (1–5) from Navidrome; filter and sort the library explorer by those values;
-  trigger a full or incremental library rescan
-- SQLite-backed library index for fast browsing of large collections; Reset &
-  Rescan option wipes the cache and rebuilds from scratch
-- Six built-in dark themes (Default, Nord, Dracula, GitHub Dark, Tokyo Night,
-  Catppuccin Mocha)
-- In-app Help page covering every feature, with a Debug Log viewer (last
-  1000 lines of the application log) and a feedback form that opens a
-  pre-filled GitHub issue
-- Login page with persistent cookie-based sessions; HTTP Basic auth also
-  supported for API access
+The switches are independent. A song matching both is moved once. Files are
+never permanently deleted: `Artist/Album/song.flac` becomes
+`.trash/Artist/Album/song.flac`. Name collisions get a numeric suffix.
 
----
-
-## Screenshots
-
-![Album Editor](docs/screenshots/album_page.png)
-
-![Artist page](docs/screenshots/artist_page.png)
-
-![Settings panel](docs/screenshots/settings_menu.png)
-
----
-
-## Requirements
-
-TagLab requires either Docker (recommended) or Python 3.12+ with ffmpeg on
-your PATH. ffmpeg is required for ReplayGain calculation in both setups.
-
----
-
-## Installation
-
-### Option A: Docker (recommended)
-
-Docker is the easiest way to run TagLab. ffmpeg is bundled in the image, so
-you don't need to install anything beyond Docker itself.
-
-**Using docker compose:**
+## Run with Docker Compose
 
 ```bash
-git clone https://github.com/cdeschenes/taglab.git
-cd taglab
 cp .env.example .env
-# Edit .env: set HOST_MEDIA_PATH, AUTH_USER, AUTH_PASSWORD, and SECRET_KEY
-docker compose up -d
+# Set HOST_MEDIA_PATH and the NAVIDROME_* values.
+# Leave DRY_RUN=true for the first run and inspect docker compose logs.
+docker compose up -d --build
 ```
 
-Then open `http://localhost:8080`.
-
-**Using `docker run` directly:**
+Then set one or both rule switches to `true`. After the dry-run output looks
+right, set `DRY_RUN=false` and recreate the container:
 
 ```bash
-docker build -t taglab .
-docker run -d \
-  -p 8080:8080 \
-  -v /path/to/your/music:/media \
-  -v /path/to/cache:/cache \
-  -e MEDIA_PATH=/media \
-  -e CACHE_PATH=/cache \
-  -e AUTH_USER=admin \
-  -e AUTH_PASSWORD=yourpassword \
-  -e SECRET_KEY=your-secret-key \
-  taglab
+docker compose up -d --force-recreate
 ```
 
-> **Note:** When using `docker run`, set `MEDIA_PATH` to `/media` (the path
-> inside the container). Your music is always mounted at `/media` regardless
-> of where it lives on the host.
+`POLL_INTERVAL` is seconds between runs; set it to `0` for a single run. The
+Navidrome user must be able to see the complete target library. Its reported
+song paths must be relative to `MEDIA_PATH` and refer to the same mounted
+library.
 
-### Option B: Local (no Docker)
-
-Running locally requires Python 3.12+ and ffmpeg on your PATH.
+## Run without Docker
 
 ```bash
-git clone https://github.com/cdeschenes/taglab.git
-cd taglab
-
-# Install Python deps and download frontend libraries (htmx, Alpine.js)
-make setup-dev
-
-# Copy and edit the env file
-cp .env.example .env
-
-# Start the dev server with auto-reload
-make dev
+MEDIA_PATH=/music \
+NAVIDROME_URL=http://localhost:4533 \
+NAVIDROME_USER=admin \
+NAVIDROME_PASSWORD=secret \
+DELETE_BY_RATING=true \
+DRY_RUN=true \
+python delete_worker.py --once
 ```
 
-The app runs at `http://localhost:8080`.
+Use `python -m unittest -v` for the small smoke test suite.
 
-### Running tests
+## Safety behavior
 
-```bash
-make test
+- Dry-run defaults to on.
+- Both deletion rules default to off.
+- Unrated songs are excluded from the rating rule.
+- Absolute paths, traversal paths, symlinks escaping the media root, missing
+  files, and paths already under `.trash/` are skipped.
+- API failures make one-shot mode fail; continuous mode logs and retries.
 
-# With coverage report
-make test-cov
-```
-
----
-
-## Updating
-
-### Docker Compose
-
-Pull the latest image and recreate the container:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-### Local Development
-
-Pull the latest code and sync dependencies:
-
-```bash
-git pull
-pip install -r requirements.txt
-```
-
----
-
-## Configuration
-
-Copy `.env.example` to `.env` and edit it. `HOST_MEDIA_PATH` (Docker) or
-`MEDIA_PATH` (local), `AUTH_USER`, `AUTH_PASSWORD`, and `SECRET_KEY` are the
-only settings you must change. Everything else is optional.
-
-| Variable | Default | Description |
-|---|---|---|
-| `HOST_MEDIA_PATH` | *(required for Docker)* | Host path to your music library, mounted to `/media` inside the container |
-| `MEDIA_PATH` | `/media` | Path to music inside the container. Override only for local dev (no Docker). |
-| `CACHE_PATH` | `/cache` | Path where the SQLite index and thumbnail cache are stored. Point to a writable volume when media is read-only. |
-| `LIBRARIES` | *(empty)* | Comma-separated list of `/path:Label` pairs for multi-library mode. Example: `/media:Main,/media2:Classical`. Leave empty to use `HOST_MEDIA_PATH` as a single library. |
-| `AUTH_USER` | `admin` | Login username |
-| `AUTH_PASSWORD` | `changeme` | Login password |
-| `SECRET_KEY` | *(insecure default)* | Secret used to sign session cookies. Set this to a long random string in production. |
-| `ORGANIZE_TARGET` | *(disabled)* | Root path files are moved to when using the organizer. Leave empty to disable. |
-| `ORGANIZE_PATTERN` | `{album_artist}/{album}/{track:02d} - {title}.flac` | Filename pattern for the organizer. Tokens: `{album_artist}` `{album}` `{title}` `{track}` `{disc}` `{year}` `{genre}` |
-| `ORGANIZE_CLEANUP_PATTERNS` | `._*,*.bak,.DS_Store,Thumbs.db` | Comma-separated glob patterns deleted from source directories after a move. Set to empty to disable cleanup. |
-| `NAVIDROME_URL` | *(disabled)* | Navidrome base URL. Enables the Navidrome sync and rescan buttons, and unlocks explorer filters for favorites and star ratings. Leave empty to disable. |
-| `NAVIDROME_USER` | | Navidrome username |
-| `NAVIDROME_PASSWORD` | | Navidrome password |
-| `LASTFM_API_KEY` | *(disabled)* | Last.fm API key. Enables the artist info page (bio, stats, similar artists, artist photo). Get a free key at [last.fm/api](https://www.last.fm/api/account/create). |
-| `ALLOW_DELETE` | `false` | Enables Move to Trash. Albums and tracks are moved to `.trash/` inside `MEDIA_PATH`. Use **Empty Trash** in the settings panel to purge permanently. |
-
----
-
-## Notes
-
-### File organizer
-
-The organizer moves files on disk. Always review the preview before
-confirming. Files move to `ORGANIZE_TARGET/<pattern>`. The target directory
-must be writable by the container user. The feature is disabled by default;
-set `ORGANIZE_TARGET` to enable it.
-
-### Move to Trash
-
-When `ALLOW_DELETE=true`, a **Move to Trash** button appears on the album
-editor and a trash icon appears on each track row. Items move to
-`{MEDIA_PATH}/.trash/` preserving their relative path. Nothing is permanently
-lost until you choose **Empty Trash** in the settings panel. The library index
-updates immediately so the sidebar reflects the change without a rescan.
-
----
-
-## Stack
-
-Python and FastAPI on the backend, with Mutagen for tag reading and writing.
-Frontend uses HTMX, Alpine.js, and Jinja2 templates. ReplayGain via ffmpeg's
-ebur128 filter. MusicBrainz lookups via musicbrainzngs. Lyrics from LRCLib.
-Navidrome integration via the Subsonic API. Library index in SQLite with
-mtime-based incremental scanning. Docker base image is Python 3.12 slim.
-
----
-
-## License
-
-MIT
+This fork retains the upstream project's MIT licensing declaration and gives
+credit to the original project.
